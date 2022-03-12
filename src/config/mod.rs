@@ -22,22 +22,20 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        let setting = Self {
+        Self {
             token: "Your Token".to_string(),
             day_channel_id: 0,
             presence_channel_id: 0,
-        };
-        save_settings(&setting).unwrap();
-        setting
+        }
     }
 }
 
 /// Loads the settings of the discord bot
 pub fn load_settings() -> Result<Settings, SettingsError> {
     let path = settings_path();
-    let config_content = read_to_string(path).map_err(|_| SettingsError::FailedToRead)?;
-    let settings = from_str(&config_content).map_err(|_| SettingsError::InvalidSettings)?;
-    Ok(settings)
+
+    let file = File::open(path).map_err(|_| SettingsError::FailedToCreateFile)?;
+    serde_json::from_reader(file).map_err(|_| SettingsError::FailedToRead)
 }
 
 /// Saves the settings to the settings path
