@@ -1,3 +1,5 @@
+mod date;
+
 fn main() {
-    println!("Hello, world!");
+    println!("Current Weekday: {}", date::date::current_week_day())
 }
