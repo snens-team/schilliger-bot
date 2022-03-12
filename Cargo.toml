@@ -8,3 +8,5 @@ edition = "2021"
 [dependencies]
 serenity = "0.10.10"
 chrono = "0.4.19"
+serde = "1.0.136"
+serde_json = "1.0.79"
