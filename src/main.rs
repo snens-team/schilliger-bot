@@ -127,7 +127,7 @@ impl EventHandler for Handler {
                             [(rng.gen::<f32>() * possibilities.len() as f32) as usize];
 
                         ctx.set_presence(
-                            Some(Activity::playing(presence.presence.clone())),
+                            Some(Activity::playing(&presence.presence)),
                             OnlineStatus::Online,
                         )
                         .await;

@@ -38,17 +38,6 @@ pub fn load_settings() -> Result<Settings, SettingsError> {
     serde_json::from_reader(file).map_err(|_| SettingsError::FailedToRead)
 }
 
-/// Saves the settings to the settings path
-pub fn save_settings(settings: &Settings) -> Result<(), SettingsError> {
-    let path = settings_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).unwrap()
-    }
-    let file = File::create(&path).map_err(|_| SettingsError::FailedToCreateFile)?;
-    to_writer_pretty(file, &settings).map_err(|_| SettingsError::FailedToWriteFile)?;
-    Ok(())
-}
-
 /// Returns the path of the settings json file
 fn settings_path() -> PathBuf {
     let mut path = current_dir().unwrap();
