@@ -10,15 +10,16 @@ use serenity::model::channel::Message;
 
 use serenity::model::gateway::Ready;
 
+use crate::config::Settings;
 use serenity::prelude::*;
 use serenity::utils::hashmap_to_json_map;
-
-const SCHILLEN_CHANNEL_ID: u64 = todo!();
 
 mod config;
 mod date;
 
-struct Handler;
+struct Handler {
+    pub settings: Settings,
+}
 
 #[async_trait]
 impl EventHandler for Handler {
@@ -29,6 +30,7 @@ impl EventHandler for Handler {
     async fn ready(&self, ctx: Context, data_about_bot: Ready) {
         info!("Bot is ready. id: {}", data_about_bot.user.id);
 
+        let settings = self.settings.clone();
         tokio::spawn(async move {
             let mut current_week_day = String::new();
 
@@ -45,7 +47,7 @@ impl EventHandler for Handler {
                     );
 
                     ctx.http
-                        .edit_channel(SCHILLEN_CHANNEL_ID, &hashmap_to_json_map(map))
+                        .edit_channel(settings.day_channel_id, &hashmap_to_json_map(map))
                         .await
                         .expect("failed to rename channel");
 
@@ -64,9 +66,9 @@ async fn main() {
         .filter_module("schilliger_bot", LevelFilter::Info)
         .init();
 
-    let token = "trollololol";
-    let mut client = Client::builder(&token)
-        .event_handler(Handler)
+    let settings = config::load_settings().unwrap_or_default();
+    let mut client = Client::builder(&settings.token)
+        .event_handler(Handler { settings })
         .await
         .expect("Failed to create client");
 
