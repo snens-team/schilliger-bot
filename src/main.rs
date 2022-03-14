@@ -1,38 +1,32 @@
 use async_trait::async_trait;
 use log::{info, LevelFilter};
 use std::collections::HashMap;
-use std::iter::Cycle;
+
 use std::sync::Arc;
 
 use rand::prelude::SliceRandom;
-use rand::{Rng, SeedableRng};
+use rand::SeedableRng;
 use rand_xorshift::XorShiftRng;
 use serde_json::Value;
-use std::thread;
 use std::time::Duration;
 
-use serenity::model::channel::Message;
-
-use serenity::model::gateway::{Activity, Ready};
-use serenity::model::prelude::OnlineStatus;
-
 use crate::config::Settings;
+use serenity::model::prelude::*;
 use serenity::prelude::*;
 use serenity::utils::hashmap_to_json_map;
 
 mod config;
 mod date;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 struct SuggestedPresence {
-    presence: String,
-    suggested_by: String,
+    content: String,
 }
 
 #[derive(Default)]
 struct Handler {
     pub settings: Settings,
-    pub presences: Arc<Mutex<Vec<SuggestedPresence>>>,
+    pub presences: Arc<Mutex<HashMap<u64, SuggestedPresence>>>,
 }
 
 impl Handler {
@@ -43,44 +37,58 @@ impl Handler {
         }
     }
 
-    async fn handle_presence_message(&self, new_message: Message) {
-        let content = new_message.content;
-        let user = format!(
-            "{}#{}",
-            new_message.author.name, new_message.author.discriminator
-        );
-        let presence = SuggestedPresence {
-            presence: content,
-            suggested_by: user,
+    pub async fn register_new_presence(&self, message: Message) {
+        let MessageId(id) = message.id;
+        let new_presence = SuggestedPresence {
+            content: message.content,
         };
 
-        info!("A presence was suggested: {presence:#?}");
-        self.presences.clone().lock().await.push(presence);
+        info!("Registered presence: {new_presence:#?}");
+        self.presences.lock().await.insert(id, new_presence);
+    }
+
+    pub async fn unregister_presence(&self, message_id: u64) {
+        if let Some(removed_presence) = self.presences.lock().await.remove(&message_id) {
+            info!("Deleted presence: {removed_presence:#?}");
+        }
     }
 }
 
 #[async_trait]
 impl EventHandler for Handler {
     async fn message(&self, _ctx: Context, new_message: Message) {
-        if new_message.channel_id == self.settings.day_channel_id {
-            self.handle_presence_message(new_message).await;
+        if new_message.channel_id == self.settings.presence_channel_id {
+            self.register_new_presence(new_message).await;
+        }
+    }
+
+    async fn message_delete(
+        &self,
+        _ctx: Context,
+        ChannelId(channel_id): ChannelId,
+        MessageId(message_id): MessageId,
+        _guild_id: Option<GuildId>,
+    ) {
+        if channel_id == self.settings.presence_channel_id {
+            self.unregister_presence(message_id).await;
         }
     }
 
     async fn ready(&self, ctx: Context, data_about_bot: Ready) {
         info!("Bot is ready. id: {}", data_about_bot.user.id);
 
-        let ctx = Arc::new(ctx);
-
+        // bad code
         for message in ctx
             .http
             .get_messages(self.settings.presence_channel_id, "")
             .await
             .unwrap()
         {
-            self.handle_presence_message(message).await;
+            self.register_new_presence(message).await;
         }
 
+        let ctx = Arc::new(ctx);
+        // task responsible for renaming channel to current day of the week
         tokio::spawn({
             let settings = self.settings.clone();
             let ctx = ctx.clone();
@@ -108,33 +116,37 @@ impl EventHandler for Handler {
                         info!("Renamed channel. Endlich {current_week_day}!");
                     }
 
-                    thread::sleep(Duration::from_secs(1));
+                    tokio::time::sleep(Duration::from_secs(1)).await;
                 }
             }
         });
 
+        // task responsible for setting the discord presence
         tokio::spawn({
-            let ctx = ctx.clone();
             let presences = self.presences.clone();
 
             async move {
                 let mut rng = XorShiftRng::from_entropy();
+                let mut last_presence = None;
 
                 loop {
-                    {
-                        let possibilities = presences.lock().await.clone();
-                        let presence = &possibilities
-                            [(rng.gen::<f32>() * possibilities.len() as f32) as usize];
+                    let possibilities = presences
+                        .lock()
+                        .await
+                        .clone()
+                        .into_values()
+                        .filter(|presence| last_presence.as_ref() != Some(presence))
+                        .collect::<Vec<_>>();
 
-                        ctx.set_presence(
-                            Some(Activity::playing(&presence.presence)),
-                            OnlineStatus::Online,
-                        )
-                        .await;
+                    if let Some(presence) = possibilities.choose(&mut rng) {
+                        let activity = Activity::playing(&presence.content.clone());
+                        ctx.set_activity(activity.clone()).await;
 
                         info!("Set presence: {presence:#?}");
+                        tokio::time::sleep(Duration::from_secs(30)).await;
+
+                        last_presence = Some(presence.clone());
                     }
-                    thread::sleep(Duration::from_secs(60));
                 }
             }
         });

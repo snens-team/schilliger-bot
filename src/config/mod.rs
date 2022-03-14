@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{from_str, to_writer_pretty};
 use std::env::current_dir;
-use std::fs::{read_to_string, File};
+use std::fs::File;
 use std::path::PathBuf;
 
 #[derive(Debug, Serialize, Deserialize)]
