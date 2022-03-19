@@ -1,20 +1,25 @@
+extern crate core;
+
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
+
 use async_trait::async_trait;
 use log::{info, LevelFilter};
-use std::collections::HashMap;
-
-use std::sync::Arc;
-
 use rand::prelude::SliceRandom;
 use rand::SeedableRng;
 use rand_xorshift::XorShiftRng;
 use serde_json::Value;
-use std::time::Duration;
-
-use crate::config::Settings;
+use serenity::framework::StandardFramework;
+use serenity::http::CacheHttp;
 use serenity::model::prelude::*;
 use serenity::prelude::*;
 use serenity::utils::hashmap_to_json_map;
+use songbird::SerenityInit;
 
+use crate::config::Settings;
+
+mod commands;
 mod config;
 mod date;
 
@@ -160,8 +165,14 @@ async fn main() {
         .init();
 
     let settings = config::load_settings().unwrap_or_default();
+    let framework = StandardFramework::new()
+        .configure(|c| c.prefix("!"))
+        .group(&commands::voice::VOICE_GROUP);
+
     let mut client = Client::builder(&settings.token)
         .event_handler(Handler::new(settings))
+        .framework(framework)
+        .register_songbird()
         .await
         .expect("Failed to create client");
 

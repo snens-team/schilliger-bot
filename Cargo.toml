@@ -22,4 +22,8 @@ features = ["full"]
 [dependencies.serenity]
 version = "0.10.10"
 default-features = false
-features = ["client", "gateway", "rustls_backend", "model"]
+features = ["client", "gateway", "rustls_backend", "model", "voice", "standard_framework", "cache"]
+
+[dependencies.songbird]
+version = "0.2.2"
+features = ["serenity", "gateway-core", "driver", "driver-core"]

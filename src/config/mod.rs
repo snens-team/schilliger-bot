@@ -1,7 +1,8 @@
-use serde::{Deserialize, Serialize};
 use std::env::current_dir;
 use std::fs::File;
 use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum SettingsError {
