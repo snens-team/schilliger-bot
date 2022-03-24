@@ -1,56 +1,24 @@
 use serenity::client::Context;
+use serenity::framework::standard::macros::command;
+use serenity::framework::standard::macros::group;
 use serenity::framework::standard::{Args, CommandResult};
-use serenity::framework::standard::macros::{command, group};
 use serenity::model::channel::Message;
+use serenity::model::guild::Guild;
+use serenity::model::id::GuildId;
+use songbird::input::Input;
 
 #[group]
 #[commands(play)]
 pub struct Voice;
 
 #[command]
-async fn play(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
+async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let guild = msg.guild(&ctx.cache).await.unwrap();
     let guild_id = guild.id;
 
-    let channel_id = guild
-        .voice_states
-        .get(&msg.author.id)
-        .and_then(|voice_state| voice_state.channel_id);
+    connect_to_vc(ctx, msg, &guild, &guild_id).await;
 
-    let connect_to = match channel_id {
-        Some(channel) => channel,
-        None => {
-            msg.reply(ctx, "Not in a voice channel").await;
-
-            return Ok(());
-        }
-    };
-
-    let manager = songbird::get(ctx)
-        .await
-        .expect("Songbird Voice client placed in at initialisation.")
-        .clone();
-
-    let _handler = manager.join(guild_id, connect_to).await;
-
-    let url = match args.single::<String>() {
-        Ok(url) => url,
-        Err(_) => {
-            msg.channel_id
-                .say(&ctx.http, "Must provide a URL to a video or audio")
-                .await;
-
-            return Ok(());
-        }
-    };
-
-    if !url.starts_with("http") {
-        msg.channel_id
-            .say(&ctx.http, "Must provide a valid URL")
-            .await;
-
-        return Ok(());
-    }
+    let url = find_url(ctx, msg, args.clone()).await.unwrap();
 
     let manager = songbird::get(ctx)
         .await
@@ -61,24 +29,92 @@ async fn play(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
         let mut handler = handler_lock.lock().await;
 
         let source = match songbird::ytdl(&url).await {
-            Ok(source) => source,
-            Err(why) => {
-                println!("Err starting source: {:?}", why);
-
-                msg.channel_id.say(&ctx.http, "Error sourcing ffmpeg").await;
-
-                return Ok(());
+            Ok(source) => {
+                msg.channel_id
+                    .say(&ctx.http, "Playing audio")
+                    .await
+                    .unwrap();
+                source
             }
+            Err(_) => match search_video(&args).await {
+                Ok(source) => {
+                    let url = source.metadata.clone().source_url.unwrap();
+                    msg.channel_id
+                        .say(&ctx.http, format!("Playing {}", url))
+                        .await
+                        .unwrap();
+                    source
+                }
+                Err(why) => {
+                    println!("Err starting source: {:?}", why);
+
+                    msg.channel_id
+                        .say(&ctx.http, "Error sourcing ffmpeg")
+                        .await
+                        .unwrap();
+
+                    return Ok(());
+                }
+            },
         };
 
-        handler.play_only_source(source);
+        println!("source {:#?}", source);
 
-        msg.channel_id.say(&ctx.http, "Playing song").await;
+        handler.play_only_source(source);
     } else {
         msg.channel_id
             .say(&ctx.http, "Not in a voice channel to play in")
-            .await;
+            .await
+            .unwrap();
     }
 
     Ok(())
+}
+
+async fn connect_to_vc(ctx: &Context, msg: &Message, guild: &Guild, guild_id: &GuildId) {
+    let channel_id = guild
+        .voice_states
+        .get(&msg.author.id)
+        .and_then(|voice_state| voice_state.channel_id);
+
+    let connect_to = match channel_id {
+        Some(channel) => channel,
+        None => {
+            msg.reply(ctx, "Not in a voice channel").await.unwrap();
+            return;
+        }
+    };
+
+    let manager = songbird::get(ctx)
+        .await
+        .expect("Songbird Voice client placed in at initialisation.")
+        .clone();
+
+    manager.join(guild_id.clone(), connect_to).await;
+}
+
+async fn find_url(ctx: &Context, msg: &Message, mut args: Args) -> Option<String> {
+    match args.single::<String>() {
+        Ok(mut url) => {
+            let url = if !url.contains("shorts") {
+                url
+            } else {
+                url.drain(url.rfind('/').unwrap() + 1..).collect()
+            };
+            Some(url)
+        }
+        Err(_) => {
+            msg.channel_id
+                .say(&ctx.http, "Must provide a URL to a video or audio")
+                .await
+                .unwrap();
+
+            None
+        }
+    }
+}
+
+async fn search_video(args: &Args) -> songbird::input::error::Result<Input> {
+    let args = args.raw().collect::<Vec<&str>>().join(" ");
+    songbird::ytdl(&format!("ytsearch1:{}", args)).await
 }
