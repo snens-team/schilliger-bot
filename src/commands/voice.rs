@@ -1,3 +1,5 @@
+use std::collections::BinaryHeap;
+use log::{debug, error};
 use serenity::client::Context;
 use serenity::framework::standard::macros::command;
 use serenity::framework::standard::macros::group;
@@ -30,42 +32,29 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
         let source = match songbird::ytdl(&url).await {
             Ok(source) => {
-                msg.channel_id
-                    .say(&ctx.http, "Playing audio")
-                    .await
-                    .unwrap();
+                msg.reply(&ctx.http, "Playing audio").await.unwrap();
                 source
             }
             Err(_) => match search_video(&args).await {
                 Ok(source) => {
                     let url = source.metadata.clone().source_url.unwrap();
-                    msg.channel_id
-                        .say(&ctx.http, format!("Playing {}", url))
-                        .await
-                        .unwrap();
+                    msg.reply(&ctx.http, format!("Playing {}", url)).await.unwrap();
                     source
                 }
                 Err(why) => {
-                    println!("Err starting source: {:?}", why);
+                    error!("Err starting source: {:?}", why);
 
-                    msg.channel_id
-                        .say(&ctx.http, "Error sourcing ffmpeg")
-                        .await
-                        .unwrap();
-
+                    msg.reply("Error sourcing ffmpeg").await.unwrap();
                     return Ok(());
                 }
             },
         };
 
-        println!("source {:#?}", source);
+        debug!("source {:#?}", source);
 
         handler.play_only_source(source);
     } else {
-        msg.channel_id
-            .say(&ctx.http, "Not in a voice channel to play in")
-            .await
-            .unwrap();
+        msg.reply(&ctx.http, "Not in a voice channel to play in").await.unwrap();
     }
 
     Ok(())
@@ -104,11 +93,7 @@ async fn find_url(ctx: &Context, msg: &Message, mut args: Args) -> Option<String
             Some(url)
         }
         Err(_) => {
-            msg.channel_id
-                .say(&ctx.http, "Must provide a URL to a video or audio")
-                .await
-                .unwrap();
-
+            msg.reply(&ctx.http, "Must provide a URL to a video or audio").await.unwrap();
             None
         }
     }
