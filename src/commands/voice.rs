@@ -78,7 +78,7 @@ async fn connect_to_vc(ctx: &Context, msg: &Message, guild: &Guild, guild_id: &G
         .expect("Songbird Voice client placed in at initialisation.")
         .clone();
 
-    manager.join(guild_id.clone(), connect_to).await;
+    manager.join(*guild_id, connect_to).await.1.unwrap();
 }
 
 async fn find_url(ctx: &Context, msg: &Message, mut args: Args) -> Option<String> {
