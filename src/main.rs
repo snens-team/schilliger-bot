@@ -11,7 +11,6 @@ use rand::SeedableRng;
 use rand_xorshift::XorShiftRng;
 use serde_json::Value;
 use serenity::framework::StandardFramework;
-use serenity::http::CacheHttp;
 use serenity::model::prelude::*;
 use serenity::prelude::*;
 use serenity::utils::hashmap_to_json_map;

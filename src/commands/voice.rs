@@ -1,4 +1,3 @@
-use std::collections::BinaryHeap;
 use log::{debug, error};
 use serenity::client::Context;
 use serenity::framework::standard::macros::command;
@@ -44,7 +43,7 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
                 Err(why) => {
                     error!("Err starting source: {:?}", why);
 
-                    msg.reply("Error sourcing ffmpeg").await.unwrap();
+                    msg.reply(&ctx.http, "Error sourcing ffmpeg").await.unwrap();
                     return Ok(());
                 }
             },
