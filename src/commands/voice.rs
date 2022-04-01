@@ -31,13 +31,16 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
         let source = match songbird::ytdl(&url).await {
             Ok(source) => {
-                msg.reply(&ctx.http, "Playing audio").await.unwrap();
+                if let Some(title) = &source.metadata.title {
+                    msg.reply(&ctx.http, format!(r#"Playing "{title}""#)).await.unwrap();
+                }
                 source
             }
             Err(_) => match search_video(&args).await {
                 Ok(source) => {
-                    let url = source.metadata.clone().source_url.unwrap();
-                    msg.reply(&ctx.http, format!("Playing {}", url)).await.unwrap();
+                    if let Some(title) = &source.metadata.title {
+                        msg.reply(&ctx.http, format!(r#"Playing "{title}""#)).await.unwrap();
+                    }
                     source
                 }
                 Err(why) => {
