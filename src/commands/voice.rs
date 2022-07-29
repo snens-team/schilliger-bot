@@ -1,16 +1,38 @@
 use log::{debug, error};
 use serenity::client::Context;
+use serenity::framework::standard::{Args, CommandResult};
 use serenity::framework::standard::macros::command;
 use serenity::framework::standard::macros::group;
-use serenity::framework::standard::{Args, CommandResult};
 use serenity::model::channel::Message;
 use serenity::model::guild::Guild;
 use serenity::model::id::GuildId;
 use songbird::input::Input;
 
 #[group]
-#[commands(play)]
+#[commands(play, stop)]
 pub struct Voice;
+
+#[command]
+async fn stop(ctx: &Context, msg: &Message) -> CommandResult {
+    let guild = msg.guild(&ctx.cache).await.unwrap();
+    let guild_id = guild.id;
+
+    let manager = songbird::get(ctx)
+        .await
+        .expect("Songbird Voice client placed in at initialisation.")
+        .clone();
+
+    if let Some(handler_lock) = manager.get(guild_id) {
+        let mut handler = handler_lock.lock().await;
+
+        // Stop the song playback
+        handler.stop();
+
+        // Send feedback message
+        msg.reply(&ctx.http, "Successfully stopped the playback").await.unwrap();
+    }
+    Ok(())
+}
 
 #[command]
 async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
