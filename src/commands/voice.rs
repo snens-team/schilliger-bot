@@ -12,7 +12,7 @@ use songbird::input::Input;
 #[commands(play, stop)]
 pub struct Voice;
 
-#[command]
+#[command("stop")]
 async fn stop(ctx: &Context, msg: &Message) -> CommandResult {
     let guild = msg.guild(&ctx.cache).unwrap();
     let guild_id = guild.id;
@@ -36,7 +36,7 @@ async fn stop(ctx: &Context, msg: &Message) -> CommandResult {
     Ok(())
 }
 
-#[command]
+#[command("play")]
 async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let guild = msg.guild(&ctx.cache).unwrap();
     let guild_id = guild.id;
