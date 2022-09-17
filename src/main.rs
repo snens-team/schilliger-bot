@@ -11,6 +11,7 @@ use rand::SeedableRng;
 use rand_xorshift::XorShiftRng;
 use serde_json::Value;
 use serenity::framework::StandardFramework;
+use serenity::json::hashmap_to_json_map;
 use serenity::model::prelude::*;
 use serenity::prelude::*;
 use serenity::utils::hashmap_to_json_map;
@@ -113,7 +114,11 @@ impl EventHandler for Handler {
                         );
 
                         ctx.http
-                            .edit_channel(settings.day_channel_id, &hashmap_to_json_map(map))
+                            .edit_channel(
+                                settings.day_channel_id,
+                                &hashmap_to_json_map(map),
+                                Some("Automatic channel rename"),
+                            )
                             .await
                             .expect("failed to rename channel");
 
@@ -168,7 +173,7 @@ async fn main() {
         .configure(|c| c.prefix("!"))
         .group(&commands::voice::VOICE_GROUP);
 
-    let mut client = Client::builder(&settings.token)
+    let mut client = Client::builder(&settings.token, GatewayIntents::all())
         .event_handler(Handler::new(settings))
         .framework(framework)
         .register_songbird()
