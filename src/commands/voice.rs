@@ -1,8 +1,8 @@
 use log::{debug, error};
 use serenity::client::Context;
-use serenity::framework::standard::{Args, CommandResult};
 use serenity::framework::standard::macros::command;
 use serenity::framework::standard::macros::group;
+use serenity::framework::standard::{Args, CommandResult};
 use serenity::model::channel::Message;
 use serenity::model::guild::Guild;
 use serenity::model::id::GuildId;
@@ -14,7 +14,7 @@ pub struct Voice;
 
 #[command]
 async fn stop(ctx: &Context, msg: &Message) -> CommandResult {
-    let guild = msg.guild(&ctx.cache).await.unwrap();
+    let guild = msg.guild(&ctx.cache).unwrap();
     let guild_id = guild.id;
 
     let manager = songbird::get(ctx)
@@ -29,14 +29,16 @@ async fn stop(ctx: &Context, msg: &Message) -> CommandResult {
         handler.stop();
 
         // Send feedback message
-        msg.reply(&ctx.http, "Successfully stopped the playback").await.unwrap();
+        msg.reply(&ctx.http, "Successfully stopped the playback")
+            .await
+            .unwrap();
     }
     Ok(())
 }
 
 #[command]
 async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
-    let guild = msg.guild(&ctx.cache).await.unwrap();
+    let guild = msg.guild(&ctx.cache).unwrap();
     let guild_id = guild.id;
 
     connect_to_vc(ctx, msg, &guild, &guild_id).await;
@@ -54,14 +56,18 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         let source = match songbird::ytdl(&url).await {
             Ok(source) => {
                 if let Some(title) = &source.metadata.title {
-                    msg.reply(&ctx.http, format!(r#"Playing `{title}`"#)).await.unwrap();
+                    msg.reply(&ctx.http, format!(r#"Playing `{title}`"#))
+                        .await
+                        .unwrap();
                 }
                 source
             }
             Err(_) => match search_video(&args).await {
                 Ok(source) => {
                     if let Some(title) = &source.metadata.title {
-                        msg.reply(&ctx.http, format!(r#"Playing `{title}`"#)).await.unwrap();
+                        msg.reply(&ctx.http, format!(r#"Playing `{title}`"#))
+                            .await
+                            .unwrap();
                     }
                     source
                 }
@@ -78,7 +84,9 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
         handler.play_only_source(source);
     } else {
-        msg.reply(&ctx.http, "Not in a voice channel to play in").await.unwrap();
+        msg.reply(&ctx.http, "Not in a voice channel to play in")
+            .await
+            .unwrap();
     }
 
     Ok(())
@@ -117,7 +125,9 @@ async fn find_url(ctx: &Context, msg: &Message, mut args: Args) -> Option<String
             Some(url)
         }
         Err(_) => {
-            msg.reply(&ctx.http, "Must provide a URL to a video or audio").await.unwrap();
+            msg.reply(&ctx.http, "Must provide a URL to a video or audio")
+                .await
+                .unwrap();
             None
         }
     }

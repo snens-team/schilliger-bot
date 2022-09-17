@@ -14,7 +14,6 @@ use serenity::framework::StandardFramework;
 use serenity::json::hashmap_to_json_map;
 use serenity::model::prelude::*;
 use serenity::prelude::*;
-use serenity::utils::hashmap_to_json_map;
 use songbird::SerenityInit;
 
 use crate::config::Settings;
