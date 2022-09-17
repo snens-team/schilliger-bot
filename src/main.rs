@@ -172,7 +172,7 @@ async fn main() {
         .configure(|c| c.prefix("!"))
         .group(&commands::voice::VOICE_GROUP);
 
-    let mut client = Client::builder(&settings.token, GatewayIntents::non_privileged())
+    let mut client = Client::builder(&settings.token, GatewayIntents::privileged())
         .event_handler(Handler::new(settings))
         .framework(framework)
         .register_songbird()
