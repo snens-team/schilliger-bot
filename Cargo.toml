@@ -26,4 +26,4 @@ features = ["client", "gateway", "rustls_backend", "model", "voice", "standard_f
 
 [dependencies.songbird]
 version = "0.3.0"
-features = ["serenity", "gateway-core", "driver", "driver-core"]
+features = ["serenity", "gateway-core", "driver", "driver-core", "yt-dlp"]
