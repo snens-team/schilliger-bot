@@ -1,27 +1,45 @@
-use log::{debug, error};
+use crate::Error;
+use log::debug;
+use reqwest::Client;
+use serenity::all::ChannelId;
+use serenity::all::ChannelType;
+use serenity::async_trait;
 use serenity::client::Context;
-use serenity::framework::standard::macros::command;
-use serenity::framework::standard::macros::group;
-use serenity::framework::standard::{Args, CommandResult};
-use serenity::model::channel::Message;
-use serenity::model::guild::Guild;
-use serenity::model::id::GuildId;
-use songbird::input::Input;
+use songbird::events::{Event, EventContext, EventHandler as VoiceEventHandler, TrackEvent};
+use songbird::input::Compose;
+use songbird::input::YoutubeDl;
 
-#[group]
-#[commands(play, stop)]
-pub struct Voice;
+use crate::PoiseContext;
 
-#[command("stop")]
-async fn stop(ctx: &Context, msg: &Message) -> CommandResult {
-    let guild = msg.guild(&ctx.cache).unwrap();
-    let guild_id = guild.id;
+struct TrackErrorNotifier;
 
-    let manager = songbird::get(ctx)
+#[async_trait]
+impl VoiceEventHandler for TrackErrorNotifier {
+    async fn act(&self, ctx: &EventContext<'_>) -> Option<Event> {
+        if let EventContext::Track(track_list) = ctx {
+            for (state, handle) in *track_list {
+                println!(
+                    "Track {:?} encountered an error: {:?}",
+                    handle.uuid(),
+                    state.playing
+                );
+            }
+        }
+
+        None
+    }
+}
+
+#[poise::command(slash_command, prefix_command)]
+pub async fn stop(ctx: PoiseContext<'_>) -> Result<(), Error> {
+    let serenity_ctx = ctx.serenity_context();
+
+    let manager = songbird::get(serenity_ctx)
         .await
         .expect("Songbird Voice client placed in at initialisation.")
         .clone();
 
+    let guild_id = ctx.guild_id().expect("Unable to find guild id");
     if let Some(handler_lock) = manager.get(guild_id) {
         let mut handler = handler_lock.lock().await;
 
@@ -29,111 +47,116 @@ async fn stop(ctx: &Context, msg: &Message) -> CommandResult {
         handler.stop();
 
         // Send feedback message
-        msg.reply(&ctx.http, "Successfully stopped the playback")
-            .await
-            .unwrap();
+        ctx.reply("Successfully stopped the video").await?;
+    } else {
+        ctx.reply("Couldn't find bot in voice channel, unable to stop the video!")
+            .await?;
     }
     Ok(())
 }
 
-#[command("play")]
-async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
-    let guild = msg.guild(&ctx.cache).unwrap();
-    let guild_id = guild.id;
+#[poise::command(slash_command, prefix_command)]
+pub async fn play(
+    ctx: PoiseContext<'_>,
+    #[description = "The url or video name to play"] video: String,
+) -> Result<(), Error> {
+    let serenity_ctx = ctx.serenity_context();
+    let guild_id = match ctx.guild_id() {
+        Some(id) => id,
+        None => {
+            ctx.reply("Unable to find channel").await?;
+            return Ok(());
+        }
+    };
 
-    connect_to_vc(ctx, msg, &guild, &guild_id).await;
+    connect_to_vc(serenity_ctx, ctx).await;
 
-    let url = find_url(ctx, msg, args.clone()).await.unwrap();
-
-    let manager = songbird::get(ctx)
+    let manager = songbird::get(serenity_ctx)
         .await
         .expect("Songbird Voice client placed in at initialisation.")
         .clone();
 
     if let Some(handler_lock) = manager.get(guild_id) {
         let mut handler = handler_lock.lock().await;
+        let mut ytdl = YoutubeDl::new(Client::new(), video.clone());
 
-        let source = match songbird::ytdl(&url).await {
-            Ok(source) => {
-                if let Some(title) = &source.metadata.title {
-                    msg.reply(&ctx.http, format!(r#"Playing `{title}`"#))
-                        .await
-                        .unwrap();
-                }
-                source
-            }
-            Err(_) => match search_video(&args).await {
-                Ok(source) => {
-                    if let Some(title) = &source.metadata.title {
-                        msg.reply(&ctx.http, format!(r#"Playing `{title}`"#))
-                            .await
-                            .unwrap();
+        // Search with url first, then with text query
+        let mut source = match ytdl.search(None).await {
+            Ok(_) => ytdl,
+            Err(_) => {
+                let mut ytdl = YoutubeDl::new_search(Client::new(), video.clone());
+                match ytdl.search(Some(1)).await {
+                    Ok(_) => ytdl,
+                    Err(why) => {
+                        ctx.reply(format!("Error playing video (detailed: {:#?})", why))
+                            .await?;
+                        return Ok(());
                     }
-                    source
                 }
-                Err(why) => {
-                    error!("Err starting source: {:?}", why);
-
-                    msg.reply(&ctx.http, "Error sourcing ffmpeg").await.unwrap();
-                    return Ok(());
-                }
-            },
+            }
         };
 
-        debug!("source {:#?}", source);
+        // We can only play the target video if an aux metadata is present
+        match &source.aux_metadata().await {
+            Ok(metadata) => {
+                // It would be very unusual for a video to not have a title, lets handle it properly anyways
+                if let Some(title) = &metadata.title {
+                    ctx.reply(format!("Now playing video `{}`", title)).await?;
+                } else {
+                    ctx.reply("Playing unknown song title").await?;
+                }
 
-        handler.play_only_source(source);
+                handler.play_only_input(source.clone().into());
+            }
+            Err(_) => {
+                ctx.reply("Unable to find video metadata").await?;
+            }
+        };
     } else {
-        msg.reply(&ctx.http, "Not in a voice channel to play in")
-            .await
-            .unwrap();
+        ctx.reply("Not in a voice channel to play in").await?;
     }
 
     Ok(())
 }
 
-async fn connect_to_vc(ctx: &Context, msg: &Message, guild: &Guild, guild_id: &GuildId) {
-    let channel_id = guild
-        .voice_states
-        .get(&msg.author.id)
-        .and_then(|voice_state| voice_state.channel_id);
-
-    let connect_to = match channel_id {
-        Some(channel) => channel,
-        None => {
-            msg.reply(ctx, "Not in a voice channel").await.unwrap();
-            return;
+/// Connects to the voice channel the user which sent the command is inside of
+async fn connect_to_vc(ctx: &Context, poise_ctx: PoiseContext<'_>) -> Option<ChannelId> {
+    let guild_id = poise_ctx.guild_id().unwrap();
+    let guild = match guild_id.channels(&ctx.http).await {
+        Ok(channels) => channels,
+        Err(_) => {
+            return None;
         }
     };
-
     let manager = songbird::get(ctx)
         .await
         .expect("Songbird Voice client placed in at initialisation.")
         .clone();
 
-    manager.join(*guild_id, connect_to).await.1.unwrap();
-}
-
-async fn find_url(ctx: &Context, msg: &Message, mut args: Args) -> Option<String> {
-    match args.single::<String>() {
-        Ok(mut url) => {
-            let url = if !url.contains("shorts") {
-                url
-            } else {
-                url.drain(url.rfind('/').unwrap() + 1..).collect()
+    let connected_channel = guild
+        .values()
+        .filter(|channel| channel.kind == ChannelType::Voice)
+        .find(|channel| {
+            let members = match channel.members(&ctx.cache) {
+                Ok(members) => members,
+                Err(_) => {
+                    // Failed to get members from channel = most likely no one in the channel
+                    return false;
+                }
             };
-            Some(url)
-        }
-        Err(_) => {
-            msg.reply(&ctx.http, "Must provide a URL to a video or audio")
-                .await
-                .unwrap();
-            None
-        }
-    }
-}
+            members
+                .iter()
+                .any(|member| member.user.id == poise_ctx.author().id)
+        })?
+        .id;
 
-async fn search_video(args: &Args) -> songbird::input::error::Result<Input> {
-    let args = args.raw().collect::<Vec<&str>>().join(" ");
-    songbird::ytdl(&format!("ytsearch1:{}", args)).await
+    match manager.join(guild_id, connected_channel).await {
+        Ok(call) => {
+            let mut handler = call.lock().await;
+            handler.add_global_event(TrackEvent::Error.into(), TrackErrorNotifier);
+            debug!("Added event-handler for TrackErrorNotifier");
+        }
+        Err(_) => {}
+    };
+    Some(connected_channel)
 }

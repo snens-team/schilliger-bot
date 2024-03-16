@@ -5,12 +5,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use log::{info, LevelFilter};
+use log::{info, warn, LevelFilter};
 use rand::prelude::SliceRandom;
 use rand::SeedableRng;
 use rand_xorshift::XorShiftRng;
 use serde_json::Value;
-use serenity::framework::StandardFramework;
+use serenity::all::ActivityData;
 use serenity::json::hashmap_to_json_map;
 use serenity::model::prelude::*;
 use serenity::prelude::*;
@@ -22,6 +22,10 @@ mod commands;
 mod config;
 mod date;
 
+struct Data {}
+type Error = Box<dyn std::error::Error + Send + Sync>;
+type PoiseContext<'a> = poise::Context<'a, Data, Error>;
+
 #[derive(Clone, Debug, PartialEq)]
 struct SuggestedPresence {
     content: String,
@@ -30,7 +34,7 @@ struct SuggestedPresence {
 #[derive(Default)]
 struct Handler {
     pub settings: Settings,
-    pub presences: Arc<Mutex<HashMap<u64, SuggestedPresence>>>,
+    pub presences: Arc<Mutex<HashMap<MessageId, SuggestedPresence>>>,
 }
 
 impl Handler {
@@ -42,7 +46,7 @@ impl Handler {
     }
 
     pub async fn register_new_presence(&self, message: Message) {
-        let MessageId(id) = message.id;
+        let id = message.id;
         let new_presence = SuggestedPresence {
             content: message.content,
         };
@@ -51,7 +55,7 @@ impl Handler {
         self.presences.lock().await.insert(id, new_presence);
     }
 
-    pub async fn unregister_presence(&self, message_id: u64) {
+    pub async fn unregister_presence(&self, message_id: MessageId) {
         if let Some(removed_presence) = self.presences.lock().await.remove(&message_id) {
             info!("Deleted presence: {removed_presence:#?}");
         }
@@ -69,8 +73,8 @@ impl EventHandler for Handler {
     async fn message_delete(
         &self,
         _ctx: Context,
-        ChannelId(channel_id): ChannelId,
-        MessageId(message_id): MessageId,
+        channel_id: ChannelId,
+        message_id: MessageId,
         _guild_id: Option<GuildId>,
     ) {
         if channel_id == self.settings.presence_channel_id {
@@ -84,7 +88,11 @@ impl EventHandler for Handler {
         // bad code
         for message in ctx
             .http
-            .get_messages(self.settings.presence_channel_id, "")
+            .get_messages(
+                ChannelId::new(self.settings.presence_channel_id),
+                None,
+                None,
+            )
             .await
             .unwrap()
         {
@@ -114,7 +122,7 @@ impl EventHandler for Handler {
 
                         ctx.http
                             .edit_channel(
-                                settings.day_channel_id,
+                                ChannelId::new(settings.day_channel_id),
                                 &hashmap_to_json_map(map),
                                 Some("Automatic channel rename"),
                             )
@@ -147,8 +155,8 @@ impl EventHandler for Handler {
                         .collect::<Vec<_>>();
 
                     if let Some(presence) = possibilities.choose(&mut rng) {
-                        let activity = Activity::playing(&presence.content.clone());
-                        ctx.set_activity(activity.clone()).await;
+                        let activity = ActivityData::playing(&presence.content.clone());
+                        ctx.set_activity(Some(activity.clone()));
 
                         info!("Set presence: {presence:#?}");
                         tokio::time::sleep(Duration::from_secs(30)).await;
@@ -167,10 +175,22 @@ async fn main() {
         .filter_module("schilliger_bot", LevelFilter::Info)
         .init();
 
-    let settings = config::load_settings().unwrap_or_default();
-    let framework = StandardFramework::new()
-        .configure(|c| c.prefix("!"))
-        .group(&commands::voice::VOICE_GROUP);
+    let settings = config::load_settings().unwrap_or_else(|err| {
+        warn!("Unable to find config ({:#?}), fallback to default", err);
+        Settings::default()
+    });
+    let framework = poise::Framework::builder()
+        .options(poise::FrameworkOptions {
+            commands: vec![commands::voice::stop(), commands::voice::play()],
+            ..Default::default()
+        })
+        .setup(|ctx, _ready, framework| {
+            Box::pin(async move {
+                poise::builtins::register_globally(ctx, &framework.options().commands).await?;
+                Ok(Data {})
+            })
+        })
+        .build();
 
     let mut client = Client::builder(&settings.token, GatewayIntents::all())
         .event_handler(Handler::new(settings))

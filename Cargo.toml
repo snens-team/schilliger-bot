@@ -14,16 +14,22 @@ env_logger = "0.9.0"
 log = "0.4.14"
 rand = "0.8.5"
 rand_xorshift = "0.3.0"
+dashmap = "5.5.3"
+reqwest = "0.11.26"
+lazy_static = "1.4.0"
+poise = "0.6.1"
+derive_more = "0.99.17"
+symphonia = { version = "0.5.2", features = ['pcm','mp3','wav','isomp4','aac','alac'] }
 
 [dependencies.tokio]
 version = "1.17.0"
 features = ["full"]
 
 [dependencies.serenity]
-version = "0.11.5"
+version = "0.12.0"
 default-features = false
 features = ["client", "gateway", "rustls_backend", "model", "voice", "standard_framework", "cache"]
 
 [dependencies.songbird]
-version = "0.3.0"
-features = ["serenity", "gateway-core", "driver", "driver-core", "yt-dlp"]
+version = "0.4.1"
+features = ["serenity", "driver"]
